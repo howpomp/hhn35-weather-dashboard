@@ -76,4 +76,5 @@ async function loadWaitTimes(){
  }
  updateSystem();
 }
-;
+setup();
+})();
