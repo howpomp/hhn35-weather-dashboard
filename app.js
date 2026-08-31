@@ -1,6 +1,7 @@
 (function(){"use strict";
 const C=window.HALLOWEEN_CONFIG,API="https://api.weather.gov",$=id=>document.getElementById(id);
-const state={observations:"loading",forecast:"loading",alerts:"loading",afd:"loading",waits:"loading"};\nlet waitHistory={};
+const state={observations:"loading",forecast:"loading",alerts:"loading",afd:"loading",waits:"loading"};
+let waitHistory={};
 let selectedVenue=C.venues[0],selectedDate=null,forecastCache=new Map();
 const fmt=(d,o={})=>new Intl.DateTimeFormat("en-US",{timeZone:C.timezone,...o}).format(d);
 const dateKey=d=>fmt(d,{year:"numeric",month:"2-digit",day:"2-digit"}).replace(/(\d+)\/(\d+)\/(\d+)/,"$3-$1-$2");
