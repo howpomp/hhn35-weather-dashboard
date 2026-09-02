@@ -26,7 +26,7 @@ function setup(){
  setInterval(loadObservations,C.refreshMs.observations);setInterval(()=>loadSelected(true),C.refreshMs.forecast);setInterval(loadAlerts,C.refreshMs.alerts);setInterval(loadAfd,C.refreshMs.afd);setInterval(loadWaitTimes,300000);
  document.addEventListener("visibilitychange",()=>{if(!document.hidden){loadObservations();loadSelected(true);loadAlerts();loadAfd();loadWaitTimes()}});
 }
-function selectVenue(id){selectedVenue=C.venues.find(v=>v.id===id);$("venue-tabs").querySelectorAll("button").forEach(b=>b.classList.toggle("active",b.dataset.id===id));$("wait-panel").classList.toggle("hidden",id!=="universal");const today=dateKey(new Date()),next=nextEvent(selectedVenue),lastVisible=nextSeven()[6];selectedDate=next&&next<=lastVisible?next:today;$("venue-name").textContent=selectedVenue.name;renderEventDetail();renderDateStrip();loadSelected();loadAlerts();if(id==="universal")loadWaitTimes()}
+function selectVenue(id){selectedVenue=C.venues.find(v=>v.id===id);$("venue-tabs").querySelectorAll("button").forEach(b=>b.classList.toggle("active",b.dataset.id===id));$("wait-panel").classList.toggle("hidden",id==="seaworld");const today=dateKey(new Date()),next=nextEvent(selectedVenue),lastVisible=nextSeven()[6];selectedDate=next&&next<=lastVisible?next:today;$("venue-name").textContent=selectedVenue.name;renderEventDetail();renderDateStrip();loadSelected();loadAlerts();if(id!=="seaworld")loadWaitTimes()}
 function renderEventDetail(){const event=eventForDate(selectedVenue,selectedDate);$("event-label").textContent=event?"SELECTED EVENT":"NON-EVENT DATE";$("event-detail").innerHTML=event?event.name+" · "+fmt(localDate(selectedDate,12),{weekday:"long",month:"short",day:"numeric"})+' · <a href="'+event.officialUrl+'" target="_blank" rel="noopener">VERIFY EVENT HOURS</a>':"Daily planning forecast · "+fmt(localDate(selectedDate,12),{weekday:"long",month:"long",day:"numeric"})}
 function nextSeven(){const out=[];for(let i=0;i<7;i++){const d=new Date();d.setDate(d.getDate()+i);out.push(dateKey(d))}return out}
 function renderDateStrip(){const keys=nextSeven();if(!keys.includes(selectedDate))selectedDate=keys.find(k=>isEvent(selectedVenue,k))||keys[0];$("date-strip").innerHTML=keys.map(k=>'<button class="date-card '+(k===selectedDate?"active":"")+'" data-date="'+k+'"><time>'+fmt(localDate(k,12),{weekday:"short",month:"short",day:"numeric"}).toUpperCase()+'</time><small class="'+(isEvent(selectedVenue,k)?"event-mark":"")+'">'+(isEvent(selectedVenue,k)?"● "+(eventForDate(selectedVenue,k).shortLabel||"EVENT"):"DAILY OUTLOOK")+"</small></button>").join("");$("date-strip").querySelectorAll("button").forEach(b=>b.addEventListener("click",()=>{selectedDate=b.dataset.date;renderDateStrip();renderEventDetail();loadSelected()}))}
@@ -53,27 +53,45 @@ async function loadAfd(){try{const idx=await request(API+"/products/types/AFD/lo
 const HHN_HOUSES=[
 "Jack & Oddfellow: Chaos & Control","Cybergoria","INVASION: Alien Abduction","MADLANDS: Caged Cannibals","H.R. Bloodengutz Presents: A Halloween Fright-Tacular!","Sinners","Evil Dead Burn","Stranger Things 5","Hellraiser","Ozzy Osbourne: Prince of Darkness"
 ];
+const DISNEY_ATTRACTIONS=[
+"TRON Lightcycle / Run","Seven Dwarfs Mine Train","Peter Pan's Flight","Tiana's Bayou Adventure","Space Mountain","Jungle Cruise","Haunted Mansion","Big Thunder Mountain Railroad","The Many Adventures of Winnie the Pooh","Pirates of the Caribbean","Buzz Lightyear's Space Ranger Spin","Under the Sea ~ Journey of the Little Mermaid","Astro Orbiter","Tomorrowland Speedway","Dumbo the Flying Elephant","The Barnstormer","Mad Tea Party","The Magic Carpets of Aladdin","Prince Charming Regal Carrousel","Tomorrowland Transit Authority PeopleMover","it's a small world"
+];
 const norm=s=>String(s||"").toLowerCase().replace(/[^a-z0-9]+/g," ").trim();
-function houseMatch(name){const n=norm(name);return HHN_HOUSES.find(h=>{const k=norm(h);return n===k||n.includes(k)||k.includes(n)})}
+function queueMatch(name,names){const n=norm(name);return names.find(item=>{const k=norm(item);return n===k||n.includes(k)||k.includes(n)})}
 function waitTrend(name,wait){const previous=waitHistory[name];if(!Number.isFinite(wait)||!Number.isFinite(previous))return{icon:"N/A",class:"na"};const diff=wait-previous;if(Math.abs(diff)<5)return{icon:"→",class:"steady"};return diff>0?{icon:"↑ +"+diff,class:"up"}:{icon:"↓ "+Math.abs(diff),class:"down"}}
-async function getUniversalParkId(){const data=await request("https://api.themeparks.wiki/v1/destinations");const destinations=data.destinations||data;for(const d of destinations){if(!/universal orlando/i.test(d.name||""))continue;const park=(d.parks||d.children||[]).find(p=>/universal studios florida/i.test(p.name||""));if(park)return park.id}throw new Error("Universal Studios Florida entity not found")}
+async function getWaitParkId(){
+ if(selectedVenue.id==="disney")return"75ea578a-adc8-4116-a54d-dccb60765ef9";
+ const data=await request("https://api.themeparks.wiki/v1/destinations"),destinations=data.destinations||data;
+ for(const d of destinations){if(!/universal orlando/i.test(d.name||""))continue;const park=(d.parks||d.children||[]).find(p=>/universal studios florida/i.test(p.name||""));if(park)return park.id}
+ throw new Error("Park entity not found");
+}
+function setWaitPanel(){
+ const disney=selectedVenue.id==="disney";
+ $("wait-title").textContent=disney?"MNSSHP ATTRACTION WAIT TIMES":"HHN35 HOUSE WAIT TIMES";
+ $("wait-name-label").textContent=disney?"RANK / ATTRACTION":"RANK / HOUSE";
+ $("wait-disclaimer").textContent=disney?"UNOFFICIAL DATA · VERIFY IN MY DISNEY EXPERIENCE":"UNOFFICIAL DATA · VERIFY IN THE UNIVERSAL ORLANDO APP";
+ return disney?DISNEY_ATTRACTIONS:HHN_HOUSES;
+}
 async function loadWaitTimes(){
- if(selectedVenue.id!=="universal")return;
+ if(selectedVenue.id==="seaworld")return;
+ const venueId=selectedVenue.id,names=setWaitPanel();
  state.waits="loading";$("wait-state").textContent="REFRESHING LIVE FEED";updateSystem();
  try{
-  const parkId=await getUniversalParkId(),data=await request("https://api.themeparks.wiki/v1/entity/"+parkId+"/live"),live=data.liveData||[];
-  const found=new Map();
-  live.forEach(item=>{const canonical=houseMatch(item.name);if(canonical)found.set(canonical,item)});
-  const rows=HHN_HOUSES.map(name=>{const item=found.get(name),status=String(item?.status||"UNKNOWN").toUpperCase(),raw=item?.queue?.STANDBY?.waitTime,wait=Number.isFinite(raw)?raw:null,open=status==="OPERATING"||status==="OPEN",updated=item?.lastUpdated?new Date(item.lastUpdated):null;return{name,item,status,open,wait,updated}});
+  const parkId=await getWaitParkId();
+  if(selectedVenue.id!==venueId)return;
+  const data=await request("https://api.themeparks.wiki/v1/entity/"+parkId+"/live"),live=data.liveData||[],found=new Map();
+  live.forEach(item=>{const canonical=queueMatch(item.name,names);if(canonical)found.set(canonical,item)});
+  const rows=names.map(name=>{const item=found.get(name),status=String(item?.status||"UNKNOWN").toUpperCase(),raw=item?.queue?.STANDBY?.waitTime,wait=Number.isFinite(raw)?raw:null,open=status==="OPERATING"||status==="OPEN",updated=item?.lastUpdated?new Date(item.lastUpdated):null;return{name,status,open,wait,updated}});
   rows.sort((a,b)=>{const group=x=>x.open&&Number.isFinite(x.wait)?0:x.open?1:2;return group(a)-group(b)||(group(a)===0?b.wait-a.wait:a.name.localeCompare(b.name))});
   let rank=0;
-  $("wait-list").innerHTML=rows.map(row=>{const ranked=row.open&&Number.isFinite(row.wait),trend=waitTrend(row.name,row.wait);if(ranked)rank++;const waitText=ranked?row.wait+" MIN":"N/A",statusText=row.open?"OPEN":row.status==="UNKNOWN"?"NO RELIABLE DATA":row.status.replaceAll("_"," "),updated=row.updated?fmt(row.updated,{hour:"numeric",minute:"2-digit"}):"SOURCE TIME N/A";return'<article class="wait-row '+(!ranked?"unranked":"")+'"><strong class="wait-rank">'+(ranked?"#"+rank:"—")+'</strong><span class="house-name">'+row.name+"</span><strong class=\"wait-value\">"+waitText+'</strong><span class="wait-trend '+trend.class+'">'+trend.icon+'</span><span class="wait-status">'+statusText+"<small>UPDATED "+updated+"</small></span></article>"}).join("");
-  const snapshot={};rows.forEach(r=>{if(Number.isFinite(r.wait))snapshot[r.name]=r.wait});waitHistory=snapshot;
+  $("wait-list").innerHTML=rows.map(row=>{const ranked=row.open&&Number.isFinite(row.wait),trend=waitTrend(venueId+":"+row.name,row.wait);if(ranked)rank++;const waitText=ranked?row.wait+" MIN":"N/A",statusText=row.open?"OPEN":row.status==="UNKNOWN"?"NO RELIABLE DATA":row.status.replaceAll("_"," "),updated=row.updated?fmt(row.updated,{hour:"numeric",minute:"2-digit"}):"SOURCE TIME N/A";return'<article class="wait-row '+(!ranked?"unranked":"")+'"><strong class="wait-rank">'+(ranked?"#"+rank:"—")+'</strong><span class="house-name">'+row.name+'</span><strong class="wait-value">'+waitText+'</strong><span class="wait-trend '+trend.class+'">'+trend.icon+'</span><span class="wait-status">'+statusText+"<small>UPDATED "+updated+"</small></span></article>"}).join("");
+  const snapshot={...waitHistory};rows.forEach(r=>{if(Number.isFinite(r.wait))snapshot[venueId+":"+r.name]=r.wait});waitHistory=snapshot;
   const reliable=rows.filter(r=>r.open&&Number.isFinite(r.wait)).length;
   $("wait-state").textContent=reliable?reliable+" RELIABLE · 5 MIN REFRESH":"N/A · NO RELIABLE POSTED WAITS";
   state.waits=reliable?"current":"stale";
  }catch(e){
-  $("wait-list").innerHTML=HHN_HOUSES.map(name=>'<article class="wait-row unranked"><strong class="wait-rank">—</strong><span class="house-name">'+name+'</span><strong class="wait-value">N/A</strong><span class="wait-trend na">N/A</span><span class="wait-status">FEED UNAVAILABLE<small>VERIFY IN UNIVERSAL APP</small></span></article>').join("");
+  if(selectedVenue.id!==venueId)return;
+  $("wait-list").innerHTML=names.map(name=>'<article class="wait-row unranked"><strong class="wait-rank">—</strong><span class="house-name">'+name+'</span><strong class="wait-value">N/A</strong><span class="wait-trend na">N/A</span><span class="wait-status">FEED UNAVAILABLE<small>VERIFY IN OFFICIAL PARK APP</small></span></article>').join("");
   $("wait-state").textContent="WAIT-TIME FEED UNAVAILABLE";state.waits="failed";
  }
  updateSystem();
